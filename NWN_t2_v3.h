@@ -155,20 +155,22 @@ string T2_GetSpecificTarget()
     {
         if (T2_GetAltarState(sMyAltar2) == "BATTLE") {
             return sMyAltar2 + "C";
+        } if (T2_IsAltarEmpty(WpDoubler())) {
+            return WpDoubler();
+        } else {
+            return T2_GetWeakestEnemyPoint();
         }
-        return T2_GetWeakestEnemyPoint();
     }
     else if (IsClericLeft())
     {
        if (T2_GetAltarState(sMyAltar2) == "BATTLE" && ClaimerOf(sMyAltar1) != MyColor()) {
             return sMyAltar2;
-        } else {
+       } else {
             return T2_GetWeakestEnemyPoint();
-        }
+       }
     }
     else if (IsWizardLeft())
     {
-
         return sMyAltar2;
     }
     else
@@ -410,9 +412,9 @@ void T2_HeartBeat()
 }
 
 void T2_Wizard_HandleAttack() {
-    if (GetDistanceToObject(GetLastAttacker()) < 10.0 && (T2_IsOnAnyAltar(OBJECT_SELF) == FALSE)) {
-        ActionMoveToLocation(GetLocation(GetNearestSeenFriend()));
-        TalentSpellAttack(GetLastAttacker());
+    if (GetDistanceToObject(GetLastAttacker()) < 15.0 && (T2_IsOnAnyAltar(OBJECT_SELF) == FALSE)) {
+        //ActionMoveToLocation(GetLocation(GetNearestSeenFriend()));
+        //TalentSpellAttack(GetLastAttacker());
     }
 }
 void T2_HandleAttack()
