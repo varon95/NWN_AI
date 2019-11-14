@@ -135,7 +135,7 @@ string T2_GetSpecificTarget()
     else if( IsFighterRight())
     {
         if (T2_GetAltarState(sMyAltar1) == "BATTLE") {
-            return sMyAltar1 + "_E";
+            return sMyAltar1 + "E";
         } else {
             return T2_GetWeakestEnemyPoint();
         }
