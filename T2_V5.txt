@@ -1,0 +1,636 @@
+#include "NW_I0_GENERIC"
+#include "our_constants"
+
+int iVerbose = FALSE;
+int iMasterround = FALSE;
+
+object T2_GetPortal()
+{
+    return GetObjectByTag("PORTAL_" + MyColor(OBJECT_SELF) + "_4");
+}
+
+// the least number of enemies
+// the least hit points for enemies
+int T2_IsAltarEmpty (string sAltar, float fMargin = 5.0) {
+
+    object oAltar = GetObjectByTag(sAltar);
+    object oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation(oAltar), 1 );
+    if (GetDistanceBetween(oCreature, oAltar) < fMargin && oCreature != OBJECT_SELF)
+    {
+        return FALSE;
+    } else {
+        return TRUE;
+    }
+}
+
+int T2_GetAltarBalanceCoefficient(string sAltar)
+{
+    object oPortal = MyPortal();
+    int iFriends = GetLocalInt(oPortal, sAltar + "_ENEMIES_COUNT");
+    int iEnemies = GetLocalInt(oPortal, sAltar + "_FRIENDS_COUNT");
+
+    int iCoeff = iFriends - iEnemies;
+    //ActionSpeakString(sAltar + " F: " + IntToString(iFriends) + "  E: " + IntToString(iEnemies), TALKVOLUME_SHOUT);
+    return iCoeff;
+}
+
+string T2_GetWeakestEnemyPoint()
+{
+    string sOpponentAltar1 = "WP_ALTAR_" + OpponentColor(OBJECT_SELF) + "_1";
+    string sOpponentAltar2 = "WP_ALTAR_" + OpponentColor(OBJECT_SELF) + "_2";
+
+    int iCoeffAltar1 = T2_GetAltarBalanceCoefficient(sOpponentAltar1);
+    int iCoeffAltar2 = T2_GetAltarBalanceCoefficient(sOpponentAltar2);
+
+    //ActionSpeakString("Altar1: " + IntToString(iCoeffAltar1) + "  Altar2: " + IntToString(iCoeffAltar2), TALKVOLUME_SHOUT);
+    if (iCoeffAltar1 > iCoeffAltar2)
+    {
+       return sOpponentAltar1;
+    } else {
+       return  sOpponentAltar2;
+    }
+
+    //if (iCoeffAltar1 >= iCoeffAltar2 && iCoeffAltar1 > iCoeffDoubler)
+    //{
+    //   return sOpponentAltar1;
+    //} else if (iCoeffAltar2 >= iCoeffAltar1 && iCoeffAltar2 > iCoeffDoubler){
+    //   return  sOpponentAltar2;
+    //} {
+    //    return sDoubler;
+    //}
+
+
+}
+
+void T2_UpdateAltarStatistics(string sAltar) {
+  object oAltar = GetObjectByTag(sAltar);
+
+  int iFriends = 0;
+  int iEnemies = 0;
+  int iFriendsHPoints = 0;
+  int iEnemiesHPoints = 0;
+  int iFriendsUnderAttack = 0;
+
+  int i = 1;
+
+  object oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation( oAltar ), i );
+  while ( i < 6 )
+  {
+    if (GetDistanceBetween(oCreature, oAltar) < 20.0)
+    {
+        if (SameTeam( oCreature ))
+        {
+            ++iFriends;
+            if (GetIsInCombat(oCreature)) {
+                ++iFriendsUnderAttack;
+            }
+        } else {
+            ++iEnemies;
+        }
+    }
+
+    ++i;
+    oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation( oAltar ), i );
+  }
+
+  object oPortal = MyPortal();
+  SetLocalInt(oPortal, sAltar + "_ENEMIES_COUNT", iEnemies);
+  SetLocalInt(oPortal, sAltar + "_FRIENDS_COUNT", iFriends);
+
+  SetLocalInt(oPortal, sAltar + "_FRIENDS_UNDERATTACK", iFriendsUnderAttack);
+
+}
+
+string T2_GetAltarState(string sAltar)
+{
+  object oPortal = MyPortal();
+  int iFriends = GetLocalInt(oPortal, sAltar + "_FRIENDS_COUNT");
+  int iEnemies = GetLocalInt(oPortal, sAltar + "ENEMIES_COUNT");
+  int iFriendsUnderAttack = GetLocalInt(oPortal, sAltar + "_FRIENDS_UNDERATTACK");
+
+  int iSum = iFriends + iEnemies;
+  if ((iFriends > iEnemies && iFriendsUnderAttack == 0) || iSum == 0) {
+        //ActionSpeakString("SAFE: " + sAltar, TALKVOLUME_SHOUT);
+        return "SAFE";
+    //return "SAFE: FRIENDS: " + IntToString(iFriends) + "  ENEMIES: " + IntToString(iEnemies) + "  UNDER ATTACK: " + IntToString(iFriendsUnderAttack);
+  } else {
+        //ActionSpeakString("BATTLE: " + sAltar, TALKVOLUME_SHOUT);
+    //return "BATTLE: FRIENDS: " + IntToString(iFriends) + "  ENEMIES: " + IntToString(iEnemies) + "  UNDER ATTACK: " + IntToString(iFriendsUnderAttack);
+        return "BATTLE";
+  }
+}
+
+//creating a path of waypoints
+//you should also set the number of waypoints in the path
+void T2_InitializeMasterPath()
+{
+    //initialize steps for Master
+    SetLocalInt(T2_GetPortal(), "iTargetnum", 1);
+    SetLocalInt(T2_GetPortal(), "iNumberPathPoins", 6);
+
+    SetLocalString(T2_GetPortal(), "sPathStep_1","WP_ALTAR_" + OpponentColor() + "_1B" );
+    SetLocalString(T2_GetPortal(), "sPathStep_2","WP_CROSSROADS_" + OpponentColor() );
+    SetLocalString(T2_GetPortal(), "sPathStep_3","WP_ALTAR_" + OpponentColor() + "_2B" );
+    SetLocalString(T2_GetPortal(), "sPathStep_4","WP_ENTRY_"+OpponentColor()+"_3");
+    SetLocalString(T2_GetPortal(), "sPathStep_5","WP_ENTRY_"+OpponentColor()+"_2" );
+    SetLocalString(T2_GetPortal(), "sPathStep_6","WP_ENTRY_"+OpponentColor()+"_1");
+}
+
+//calculate how many enemies are near the master
+int T2_EnemiesAround()
+{
+  int iEnemies = 0;
+  int i = 1;
+
+  while ( i < 6 )
+  {
+  object oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation( OBJECT_SELF), i );
+     if (GetDistanceBetween(oCreature, OBJECT_SELF) < 20.0)
+    {
+        if (!SameTeam( oCreature ))
+        {
+            ++ iEnemies;
+        }
+    }
+    ++ i;
+  }
+  SpeakString("the number of enemies around is " + IntToString(iEnemies), TALKVOLUME_SHOUT);
+  return iEnemies;
+}
+
+//calculates the next point in the path
+string T2_NextStepInPath()
+{
+    SpeakString("next step", TALKVOLUME_SHOUT);
+    if(!GetLocalInt(T2_GetPortal(), "iTargetnum")){T2_InitializeMasterPath();}
+
+    int iTargetnum = GetLocalInt(T2_GetPortal(), "iTargetnum");
+    int iNumberPathPoins = GetLocalInt(T2_GetPortal(), "iNumberPathPoins");
+    iTargetnum = (iTargetnum%iNumberPathPoins)+1;
+    SetLocalInt(T2_GetPortal(), "iTargetnum", iTargetnum);
+
+    if(iTargetnum == GetLocalInt(T2_GetPortal(), "iNumberPathPoins")  && T2_EnemiesAround()<2)
+    {
+        SpeakString(GetLocalString(T2_GetPortal(), "sPathStep_" + IntToString(iTargetnum)), TALKVOLUME_SHOUT);
+        SetLocalInt(T2_GetPortal(), "iGoOnPath", FALSE ); //this should bring it back to normal
+
+        string sMyAltar1 = "WP_ALTAR_" + MyColor(OBJECT_SELF) + "_1";
+        string sMyAltar2 = "WP_ALTAR_" + MyColor(OBJECT_SELF) + "_2";
+
+
+        if (T2_GetAltarState(sMyAltar1) == "BATTLE") {
+            return sMyAltar1;
+        }
+        if (T2_GetAltarState(sMyAltar2)== "BATTLE"){
+            return sMyAltar2;
+        } else {
+            return T2_GetWeakestEnemyPoint();
+        }
+    }
+
+    return GetLocalString(T2_GetPortal(), "sPathStep_" + IntToString(iTargetnum));
+}
+
+string T2_GetSpecificTarget()
+{
+    string sMyAltar1 = "WP_ALTAR_" + MyColor(OBJECT_SELF) + "_1";
+    string sMyAltar2 = "WP_ALTAR_" + MyColor(OBJECT_SELF) + "_2";
+    string sOpponentAltar1 = "WP_ALTAR_" + OpponentColor(OBJECT_SELF) + "_1";
+    string sOpponentAltar2 = "WP_ALTAR_" + OpponentColor(OBJECT_SELF) + "_2";
+
+    if (IsWizardRight())
+    {
+        if (T2_GetAltarState(sMyAltar1) == "BATTLE" && ClaimerOf(sMyAltar1) != MyColor()) {
+            return sMyAltar1;
+        } else {
+            return T2_GetWeakestEnemyPoint();
+        }
+    }
+    else if (IsClericRight())
+    {
+        return sMyAltar1;
+    }
+
+    else if( IsFighterRight())
+    {
+        if (T2_GetAltarState(sMyAltar1) == "BATTLE") {
+            return sMyAltar1 + "E";
+        }
+        else {
+            return T2_GetWeakestEnemyPoint();
+        }
+    }
+
+    else if (IsMaster())
+    {
+        if (T2_GetAltarState(sMyAltar1) == "BATTLE") {
+            return sMyAltar1;
+        }
+        if (T2_GetAltarState(sMyAltar2)== "BATTLE"){
+            return sMyAltar2;
+        } else {
+            if(iMasterround)
+            {
+             SetLocalInt(T2_GetPortal(), "iGoOnPath", TRUE);
+             return T2_NextStepInPath();
+            }
+            else{return T2_GetWeakestEnemyPoint();}
+        }
+    }
+    else if (IsFighterLeft())
+    {
+        if (T2_GetAltarState(sMyAltar2) == "BATTLE") {
+            return sMyAltar2 + "C";
+        } if (T2_IsAltarEmpty(WpDoubler())) {
+            return WpDoubler();
+        } else {
+            return T2_GetWeakestEnemyPoint();
+        }
+    }
+
+    else if (IsClericLeft())
+    {
+       if (T2_GetAltarState(sMyAltar2) == "BATTLE" && ClaimerOf(sMyAltar1) != MyColor()) {
+            return sMyAltar2;
+       } else {
+            return T2_GetWeakestEnemyPoint();
+       }
+    }
+    else if (IsWizardLeft())
+    {
+        return sMyAltar2;
+    }
+    else
+    {
+        if(iVerbose){ActionSpeakString("Getting Random Target", TALKVOLUME_SHOUT);}
+        return GetRandomTarget();
+    }
+}
+
+
+int T2_IsOnAltar (object oCharacter, string sAltar, float iMargin = 0.5) {
+    float iDistToAltar = GetDistanceBetweenLocations(GetLocation(oCharacter), GetLocation(GetObjectByTag(sAltar)));
+    if (iDistToAltar < iMargin) {
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+int T2_IsOnAnyAltar (object oCharacter = OBJECT_SELF) {
+    if (T2_IsOnAltar(oCharacter, WpFurthestAltarRight())) { return TRUE;}
+    if (T2_IsOnAltar(oCharacter, WpFurthestAltarLeft())) { return TRUE;}
+    if (T2_IsOnAltar(oCharacter, WpClosestAltarLeft())) { return TRUE;}
+    if (T2_IsOnAltar(oCharacter, WpClosestAltarRight())) { return TRUE;}
+    if (T2_IsOnAltar(oCharacter, WpDoubler())) { return TRUE;}
+
+    return FALSE;
+}
+void T2_UpdateAllAltarsStats () {
+    T2_UpdateAltarStatistics(WpFurthestAltarRight());
+    T2_UpdateAltarStatistics(WpFurthestAltarLeft());
+    T2_UpdateAltarStatistics(WpClosestAltarLeft());
+    T2_UpdateAltarStatistics(WpClosestAltarRight());
+}
+
+int T2_IsOnBaseAltar (object oCharacter) {
+    float iDistToAL = GetDistanceBetweenLocations(GetLocation(oCharacter), GetLocation(GetObjectByTag(WpClosestAltarLeft())));
+    float iDistToAR = GetDistanceBetweenLocations(GetLocation(oCharacter), GetLocation(GetObjectByTag(WpClosestAltarRight())));
+    if (iDistToAL < 0.5 || iDistToAR < 0.5) {
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+void T2_DetermineCombatAction()
+{
+    if (IsWizard())
+    {
+      TalentSpellAttack(GetNearestEnemy());
+    }
+    else
+    {
+    TalentMeleeAttack(GetNearestEnemy());
+    }
+}
+
+// Called every time that the AI needs to take a combat decision. The default is
+// a call to the NWN DetermineCombatRound.
+void T2_DetermineCombatRound (object oIntruder = OBJECT_INVALID, int nAI_Difficulty = 10 )
+{
+   ClearAllActions();
+   if (IsMaster() || IsFighterRight()) {
+     string sCurrentTarget = GetLocalString( OBJECT_SELF, "TARGET");
+
+    if ((T2_GetAltarState(WpClosestAltarLeft()) == "BATTLE" || T2_GetAltarState(WpClosestAltarRight()) == "BATTLE")
+        && (sCurrentTarget == WpClosestAltarLeft() || sCurrentTarget == WpClosestAltarRight())) {
+            if(iVerbose){ActionSpeakString("Defending altar, Determine Combat round!", TALKVOLUME_SHOUT);}
+            T2_DetermineCombatAction();  // If the base altars are in battle and they're current goal -> fight
+    } else {
+        T2_UpdateAllAltarsStats();
+
+        if (sCurrentTarget == WpClosestAltarLeft() || sCurrentTarget == WpClosestAltarRight()) {
+           string sCurrentTarget = T2_GetWeakestEnemyPoint();
+        }
+
+        if (T2_IsOnAltar(OBJECT_SELF, sCurrentTarget, 0.4)) {
+            if(iVerbose){ActionSpeakString("On enemy altar, Determine Combat round!", TALKVOLUME_SHOUT);}
+            T2_DetermineCombatAction();
+        } else {
+           SetLocalString( OBJECT_SELF, "TARGET", sCurrentTarget);
+           ClearAllActions();
+           if(iVerbose){ActionSpeakString("Going to weakest point!" + sCurrentTarget, TALKVOLUME_SHOUT);}
+
+           object oEnemy = GetNearestEnemy();
+           ActionMoveToLocation( GetLocation( GetObjectByTag(sCurrentTarget) ), TRUE );
+           if (GetDistanceToObject(oEnemy) < 3.0 && GetDistanceBetweenLocations(GetLocation(oEnemy), GetLocation(GetObjectByTag(sCurrentTarget))) < 1.0) {
+                if(iVerbose){ActionSpeakString("Attacking Enemy who is next to my target!" + sCurrentTarget, TALKVOLUME_SHOUT);}
+                ActionAttack(oEnemy);
+           }
+        }
+
+      }
+   } else {
+        T2_DetermineCombatAction();
+   }
+
+
+}
+
+
+string T2_GetNearest_Altar() {
+   float fRange = 10.0;
+   float fDistWP = GetDistanceToObject(GetObjectByTag(WpDoubler()));
+   float fDistAlNearRight = GetDistanceToObject(GetObjectByTag(WpClosestAltarRight()));
+   float fDistAlNearLeft = GetDistanceToObject(GetObjectByTag(WpClosestAltarLeft()));
+   float fDistAlFarLeft = GetDistanceToObject(GetObjectByTag(WpFurthestAltarLeft()));
+   float fDistAlFarRight = GetDistanceToObject(GetObjectByTag(WpFurthestAltarRight()));
+
+   if (fDistWP < fRange) return WpDoubler();
+   if (fDistAlNearRight < fRange) return WpClosestAltarRight();
+   if (fDistAlNearLeft < fRange) return WpClosestAltarLeft();
+   if (fDistAlFarLeft < fRange) return WpFurthestAltarLeft();
+   if (fDistAlFarRight < fRange) return WpFurthestAltarRight();
+
+   return "";
+
+}
+
+void T2_Master_HandleCombatEnd () {
+    string sNearAltar = T2_GetNearest_Altar();
+    string sTempTarget = GetLocalString( OBJECT_SELF, "TARGET");
+    string sNewTarget = GetLocalString( OBJECT_SELF, "TARGET");
+
+    if (sNearAltar != "" && T2_IsAltarEmpty(sNearAltar)) {
+        if (sNearAltar != WpClosestAltarRight() && sNearAltar != WpClosestAltarLeft()) {
+            sNewTarget = sNearAltar;
+        }
+        sTempTarget = sNearAltar;
+    }
+
+     ActionMoveToLocation( GetLocation(GetObjectByTag(sTempTarget)), TRUE );
+     SetLocalString( OBJECT_SELF, "TARGET", sNewTarget);
+     //ActionSpeakString("End combat round! Moving to " + sTempTarget + " Perm: " + sNewTarget, TALKVOLUME_SHOUT);
+}
+
+void T2_HandleCombatEnd () {
+   T2_UpdateAllAltarsStats();
+   if (IsMaster()) {
+       T2_Master_HandleCombatEnd();
+   }
+
+   if (IsWizardLeft() || IsFighterLeft() || IsWizardRight() || IsFighterRight()) {
+        T2_Master_HandleCombatEnd();
+   }
+}
+
+
+void T2_ObtainDoubler () {
+    if (OBJECT_SELF != GetObjectByTag("NPC_" + MyColor(OBJECT_SELF) + "_5"))
+    {
+        return;
+    }
+
+    if (T2_IsAltarEmpty("WP_DOUBLER") && T2_GetAltarState("WP_ALTAR_" + MyColor(OBJECT_SELF) + "_2") == "SAFE") {
+        if(iVerbose){ActionSpeakString("Going for the doubler", TALKVOLUME_SHOUT);}
+        ActionMoveToLocation( GetLocation( GetObjectByTag("WP_DOUBLER") ), TRUE );
+     }
+
+}
+
+void T2_Cleric_HeartBeat() {
+    int i = 1;
+    object oCreature = GetNearestSeenFriend( OBJECT_SELF, i );
+
+    if (T2_IsOnBaseAltar(OBJECT_SELF)) {
+       TalentHealingSelf();
+    }
+
+    while (GetIsObjectValid( oCreature ))
+    {
+        if (GetDistanceToObject(oCreature) < 20.0 && GetHealth(oCreature) < 4) {
+            TalentHeal(FALSE, oCreature);
+            if(iVerbose){ActionSpeakString("Healing " + GetTag(oCreature), TALKVOLUME_SHOUT);}
+        } else {
+            if (GetHealth(oCreature) < 4) {
+                TalentHealingSelf();
+            }
+        }
+        ++i;
+        oCreature = GetNearestSeenFriend( OBJECT_SELF, i );
+    }
+}
+
+// Called every heartbeat (i.e., every six seconds).
+void T2_HeartBeat()
+{
+
+    if (IsCleric()) {
+       T2_Cleric_HeartBeat();
+    }
+
+    if (IsMaster()) {
+       T2_UpdateAllAltarsStats();
+    }
+
+    //for master if on patrol
+    if(IsMaster() && GetLocalInt(T2_GetPortal(), "iGoOnPath"))
+    {
+        object oTarget = GetObjectByTag( GetLocalString( OBJECT_SELF, "TARGET" ) );
+        if(GetDistanceBetween( OBJECT_SELF, oTarget ) < 10.0)
+             {
+                SetLocalString( OBJECT_SELF, "TARGET", T2_NextStepInPath() );
+                oTarget = GetObjectByTag( GetLocalString( OBJECT_SELF, "TARGET" ) );
+             }
+        ActionMoveToLocation( GetLocation( oTarget ), TRUE );
+        return;
+    }
+
+    if (GetIsInCombat())
+        return;
+
+    //T2_ObtainDoubler();
+    string sTarget = GetLocalString( OBJECT_SELF, "TARGET" );
+    if (sTarget == "")
+        return;
+
+    object oTarget = GetObjectByTag( sTarget );
+    if (!GetIsObjectValid( oTarget ))
+        return;
+
+    // If there is a member of my own team close to the target and closer than me,
+    // and no enemy is closer and this other member is not in combat and
+    // has the same target, then choose a new target.
+    float fToTarget = GetDistanceToObject( oTarget );
+    int i = 1;
+    int bNewTarget = FALSE;
+    object oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation( oTarget ), i );
+    while (GetIsObjectValid( oCreature ))
+    {
+        if (GetLocation( oCreature ) == GetLocation( OBJECT_SELF ))
+            break;
+        if (GetDistanceBetween( oCreature, oTarget ) > fToTarget)
+            break;
+        if (GetDistanceBetween( oCreature, oTarget ) > 5.0)
+            break;
+        if (!SameTeam( oCreature ))
+            break;
+        if (GetIsInCombat( oCreature ))
+            break;
+        if (GetLocalString( oCreature, "TARGET" ) == sTarget)
+        {
+            bNewTarget = TRUE;
+            break;
+        }
+        ++i;
+        oCreature = GetNearestObjectToLocation( OBJECT_TYPE_CREATURE, GetLocation( oTarget ), i );
+    }
+
+    if (bNewTarget)
+    {
+        sTarget = T2_GetSpecificTarget();
+        SetLocalString( OBJECT_SELF, "TARGET", sTarget );
+        oTarget = GetObjectByTag( sTarget );
+        if (!GetIsObjectValid( oTarget ))
+            return;
+        fToTarget = GetDistanceToObject( oTarget );
+    }
+
+    if (fToTarget > 0.5)
+        ActionMoveToLocation( GetLocation( oTarget ), TRUE );
+
+    return;
+}
+
+void T2_Wizard_HandleAttack() {
+    if (GetDistanceToObject(GetLastAttacker()) < 15.0 && (T2_IsOnAnyAltar(OBJECT_SELF) == FALSE)) {
+        //ActionMoveToLocation(GetLocation(GetNearestSeenFriend()));
+        //TalentSpellAttack(GetLastAttacker());
+    }
+}
+void T2_HandleAttack()
+{
+    string sTarget = GetLocalString( OBJECT_SELF, "TARGET" );
+
+    if (IsWizard()) {
+        T2_Wizard_HandleAttack();
+    }
+    //ActionSpeakString("ATTACKED: " + IntToString(T2_IsOnBaseAltar(OBJECT_SELF)), TALKVOLUME_SHOUT);
+    //if (IsCleric() == TRUE && T2_IsOnBaseAltar(OBJECT_SELF)) {
+       //ClearAllActions();
+       //if (GetHealth() < 3){
+           //TalentHealingSelf();
+           //ActionSpeakString("Clear actions and heal myself", TALKVOLUME_SHOUT);
+        //} else if (GetDistanceToObject(GetLastAttacker()) < 20.0){
+          // TalentSpellAttack(GetLastAttacker());
+           //ActionSpeakString("Clear actions and attack intruder", TALKVOLUME_SHOUT);
+        //}
+    //}
+}
+
+// Called when the NPC is spawned.
+void T2_Spawn()
+{
+    string sTarget = T2_GetSpecificTarget();
+    SetLocalString( OBJECT_SELF, "TARGET", sTarget );
+    ActionMoveToLocation( GetLocation( GetObjectByTag( sTarget ) ), TRUE );
+}
+
+// This function is called when certain events take place, after the standard
+// NWN handling of these events has been performed.
+void T2_UserDefined( int Event )
+{
+    // In a word, fatal is certainly having only 1 HP left!
+    int nHealth = GetCurrentHitPoints() - 1;
+
+    // Declare the damage - visuals, however, are not automatic.
+    effect eOuch = EffectDamage(nHealth, DAMAGE_TYPE_DIVINE);
+
+    effect asdfgh = EffectParalyze();
+
+    switch (Event)
+    {
+        // The NPC has just been attacked.
+        case EVENT_ATTACKED:
+             //T2_HandleAttack();
+             break;
+
+        // The NPC was damaged.
+        case EVENT_DAMAGED:
+            //ActionSpeakString("IM DAMAGED", TALKVOLUME_SHOUT);
+            //ApplyEffectToObject( DURATION_TYPE_TEMPORARY, asdfgh, OBJECT_SELF, 10.0 );
+            break;
+
+        // At the end of one round of combat.
+        case EVENT_END_COMBAT_ROUND:
+            T2_HandleCombatEnd();
+            break;
+
+        // Every heartbeat (i.e., every six seconds).
+        case EVENT_HEARTBEAT:
+            T2_HeartBeat();
+
+            // Apply the damage instantly
+            //ApplyEffectToObject(DURATION_TYPE_INSTANT, eOuch, OBJECT_SELF);
+
+            //ActionSpeakString("HEARTBEAT", TALKVOLUME_SHOUT);
+
+            break;
+
+        // Whenever the NPC perceives a new creature.
+        case EVENT_PERCEIVE:
+            //ActionSpeakString("PERCIEVE", TALKVOLUME_SHOUT);
+            break;
+
+        // When a spell is cast at the NPC.
+        case EVENT_SPELL_CAST_AT:
+           //ActionSpeakString("SPELL CAST", TALKVOLUME_SHOUT);
+           break;
+
+        // Whenever the NPC's inventory is disturbed.
+        case EVENT_DISTURBED:
+            //ActionSpeakString("INVENTORY DISTURBED", TALKVOLUME_SHOUT);
+            break;
+
+        // Whenever the NPC dies.
+        case EVENT_DEATH:
+            //ActionSpeakString("DIEDED", TALKVOLUME_SHOUT);
+            //ActionSpeakString(GetTag(OBJECT_SELF), TALKVOLUME_SHOUT);
+            break;
+
+        // When the NPC has just been spawned.
+        case EVENT_SPAWN:
+            T2_Spawn();
+            //ActionSpeakString("Spawn", TALKVOLUME_SHOUT);
+            break;
+    }
+
+    return;
+}
+
+// Called when the fight starts, just before theiinital spawning.
+void T2_Initialize( string sColor )
+{
+    SetTeamName( sColor, "KillerAI-" + GetStringLowerCase( sColor ) );
+}
